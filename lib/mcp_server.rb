@@ -76,10 +76,10 @@ get '/search' do
   db.enable_load_extension(true)
   
   # Load the VSS extension
-  vector_lib_path_for_load = File.expand_path('../.venv/lib/python3.12/site-packages/sqlite_vss/vector0', __dir__)
-  vss_lib_path_for_load = File.expand_path('../.venv/lib/python3.12/site-packages/sqlite_vss/vss0', __dir__)
-  db.load_extension(vector_lib_path_for_load)
-  db.load_extension(vss_lib_path_for_load)
+  vector_lib_path = File.expand_path('../../vendor/sqlite-vss/vector0.so', __FILE__)
+  vss_lib_path = File.expand_path('../../vendor/sqlite-vss/vss0.so', __FILE__)
+  db.load_extension(vector_lib_path)
+  db.load_extension(vss_lib_path)
 
   begin
     # Find the k-nearest neighbors
@@ -93,12 +93,12 @@ get '/search' do
       FROM symbol_embeddings e
       JOIN symbols s ON s.id = e.rowid
       JOIN files f ON s.file_id = f.id
-      WHERE vss_search(e.embedding, vss_search_params(?, ?))
+      WHERE vss_search(e.embedding, ?)
       ORDER BY e.distance
       LIMIT ?
     SQL
 
-    results = db.execute(sql, JSON.generate(query_embedding), limit, limit)
+    results = db.execute(sql, JSON.generate(query_embedding), limit)
     { results: results }.to_json
   ensure
     db.close

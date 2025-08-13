@@ -35,7 +35,7 @@ The data pipeline is designed for a rich, offline-first experience:
 
 ## Progress & Implemented Features
 
-The project has made significant progress and has a functional core.
+The project has a functional core that successfully covers all planned features from the "Core AST Inspection" and "Semantic & Cross-File Analysis" categories.
 
 ### Completed
 
@@ -44,27 +44,40 @@ The project has made significant progress and has a functional core.
     *   [x] Set up the `SQLite` database schema (for symbols, files, relations).
     *   [x] Integrate `sqlite-vss` for vector storage and search.
 *   **Phase 2: Indexer & API**
-    *   [x] Build the main indexer process (full scan).
-    *   [x] Implement the core MCP API server with the following endpoints:
-        *   `/list_files`: Lists all indexed files.
-        *   `/get_symbols`: Returns all symbols (classes, modules, methods) for a given file.
-        *   `/get_ast`: Returns the full AST for a given file.
-        *   `/query_nodes`: Finds nodes of a specific type within a file's AST.
-        *   `/get_node_details`: Retrieves details for a specific node.
-        *   `/get_ancestors`: Returns the ancestor nodes for a given node.
-        *   `/find_definition`: Finds the definition of a symbol.
-        *   `/find_references`: Finds all references to a symbol.
-        *   `/get_call_hierarchy`: Returns the inbound and outbound calls for a method.
-        *   `/search`: (Placeholder) A vector-based semantic search for methods.
+    *   [x] Build the main indexer process for full repository scans.
+    *   [x] Implemented all core MCP API endpoints for inspection and analysis.
 
 ### Next Steps
 
-*   [ ] **Phase 3: Code Transformation & Real-time Indexing**
+*   [ ] **Phase 3: Stabilize & Refine Core Features**
+    *   [ ] **Functional Search:** Replace the placeholder random vector in the `/search` endpoint with a real query embedding mechanism.
+    *   [ ] **Robust VSS Loading:** Make the loading of the `sqlite-vss` extension portable by removing hardcoded paths.
+    *   [ ] **Server Refactoring:** Refactor `mcp_server.rb` to reduce code duplication for database connections and AST loading.
+*   [ ] **Phase 4: Code Transformation & Real-time Indexing**
     *   [ ] Implement the code transformation endpoints (`/replace_node_text`, etc.).
     *   [ ] Add a file watcher for real-time, incremental indexing.
-*   [ ] **Phase 4: Tooling & DX**
+*   [ ] **Phase 5: Tooling & DX**
     *   [ ] Create a simple CLI for starting the server and managing the index.
     *   [ ] Develop a GitHub Actions workflow for CI-based index generation.
+
+## API Documentation
+
+The server runs on `http://localhost:65432`. All endpoints return JSON.
+
+| Endpoint | Description | Parameters | Example `curl` Command |
+| :--- | :--- | :--- | :--- |
+| **`GET /`** | Health check | None | `curl http://localhost:65432/` |
+| **`GET /list_files`** | Lists all indexed files in the repository. | None | `curl http://localhost:65432/list_files` |
+| **`GET /get_ast`** | Retrieves the full AST for a single file. | `file_path` (string) | `curl "http://localhost:65432/get_ast?file_path=test/test_file_1.rb"` |
+| **`GET /get_symbols`** | Returns all symbols for a given file. | `file_path` (string) | `curl "http://localhost:65432/get_symbols?file_path=test/test_file_1.rb"` |
+| **`GET /query_nodes`** | Finds nodes of a specific type in a file's AST. | `file_path`, `type` | `curl "http://localhost:65432/query_nodes?file_path=test/test_file_1.rb&type=def"` |
+| **`GET /get_node_details`** | Retrieves details for a specific node by its ID. | `file_path`, `node_id` | `curl "http://localhost:65432/get_node_details?file_path=test/test_file_1.rb&node_id=root.children.0"`|
+| **`GET /get_ancestors`** | Returns the ancestor nodes for a given node ID. | `file_path`, `node_id` | `curl "http://localhost:65432/get_ancestors?file_path=test/test_file_1.rb&node_id=root.children.0.children.2.children.0"` |
+| **`GET /find_definition`** | Finds the definition of a symbol by name. | `name` (string) | `curl "http://localhost:65432/find_definition?name=MyClass"` |
+| **`GET /find_references`** | Finds all references to a symbol by name. | `name` (string) | `curl "http://localhost:65432/find_references?name=my_method"` |
+| **`GET /get_call_hierarchy`**| Gets inbound/outbound calls for a method. | `file_path`, `line` | `curl "http://localhost:65432/get_call_hierarchy?file_path=test/test_file_1.rb&line=3"` |
+| **`GET /search`** | *Placeholder:* Vector search for methods. | `query`, `limit` | `curl "http://localhost:65432/search?query=database&limit=5"` |
+
 
 ## Testing Approach
 
