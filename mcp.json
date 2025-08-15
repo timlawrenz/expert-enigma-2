@@ -1,0 +1,824 @@
+{
+  "openapi": "3.1.0",
+  "info": {
+    "title": "Expert Enigma MCP Server API",
+    "version": "v1",
+    "description": "Model Context Protocol (MCP) server for Ruby code analysis and exploration. Provides endpoints for AST inspection, symbol lookup, and semantic analysis of Ruby codebases.",
+    "contact": {
+      "name": "Expert Enigma",
+      "url": "https://github.com/timlawrenz/expert-enigma-2"
+    },
+    "license": {
+      "name": "MIT",
+      "url": "https://opensource.org/licenses/MIT"
+    }
+  },
+  "servers": [
+    {
+      "url": "http://localhost:65432",
+      "description": "Development server"
+    }
+  ],
+  "paths": {
+    "/": {
+      "get": {
+        "summary": "Server status check",
+        "description": "Returns the server status to confirm it is running",
+        "tags": [
+          "Server Management"
+        ],
+        "responses": {
+          "200": {
+            "description": "Server is running successfully",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "status": {
+                      "type": "string",
+                      "example": "ok"
+                    },
+                    "message": {
+                      "type": "string",
+                      "example": "Expert Enigma MCP Server is running."
+                    }
+                  },
+                  "required": [
+                    "status",
+                    "message"
+                  ]
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/list_files": {
+      "get": {
+        "summary": "List all indexed files",
+        "description": "Returns a list of all files that have been indexed in the database",
+        "tags": [
+          "File Management"
+        ],
+        "responses": {
+          "200": {
+            "description": "List of indexed files returned successfully",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "files": {
+                      "type": "array",
+                      "items": {
+                        "type": "string"
+                      },
+                      "example": [
+                        "test/test_file_1.rb",
+                        "test/test_file_2.rb"
+                      ]
+                    }
+                  },
+                  "required": [
+                    "files"
+                  ]
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/get_ast": {
+      "get": {
+        "summary": "Get AST for a file",
+        "description": "Returns the complete Abstract Syntax Tree (AST) for a specified file",
+        "tags": [
+          "AST Analysis"
+        ],
+        "parameters": [
+          {
+            "name": "file_path",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "string"
+            },
+            "description": "Path to the file to retrieve AST for",
+            "example": "test/test_file_1.rb"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "AST returned successfully as JSON",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "string",
+                  "description": "JSON representation of the file AST"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Missing required parameter",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "File not found or not indexed",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/get_symbols": {
+      "get": {
+        "summary": "Get symbols for a file",
+        "description": "Returns all symbols (methods, classes, etc.) defined in a specified file",
+        "tags": [
+          "Symbol Analysis"
+        ],
+        "parameters": [
+          {
+            "name": "file_path",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "string"
+            },
+            "description": "Path to the file to retrieve symbols for",
+            "example": "test/test_file_1.rb"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Symbols returned successfully",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "symbols": {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "properties": {
+                          "name": {
+                            "type": "string",
+                            "example": "method_one"
+                          },
+                          "type": {
+                            "type": "string",
+                            "example": "method"
+                          },
+                          "scope": {
+                            "type": "string",
+                            "example": "TestModule::TestClass"
+                          },
+                          "start_line": {
+                            "type": "integer",
+                            "example": 3
+                          },
+                          "end_line": {
+                            "type": "integer",
+                            "example": 5
+                          }
+                        }
+                      }
+                    }
+                  },
+                  "required": [
+                    "symbols"
+                  ]
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Missing required parameter",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/query_nodes": {
+      "get": {
+        "summary": "Query AST nodes by type",
+        "description": "Finds all nodes of a specific type within a file's AST",
+        "tags": [
+          "AST Analysis"
+        ],
+        "parameters": [
+          {
+            "name": "file_path",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "string"
+            },
+            "description": "Path to the file to query",
+            "example": "test/test_file_1.rb"
+          },
+          {
+            "name": "type",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "string"
+            },
+            "description": "Type of AST nodes to find",
+            "example": "def"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Nodes returned successfully",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "nodes": {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "description": "AST node representation"
+                      }
+                    }
+                  },
+                  "required": [
+                    "nodes"
+                  ]
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Missing required parameters",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "File not found or not indexed",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/get_node_details": {
+      "get": {
+        "summary": "Get details for a specific AST node",
+        "description": "Returns detailed information about a specific node in a file's AST",
+        "tags": [
+          "AST Analysis"
+        ],
+        "parameters": [
+          {
+            "name": "file_path",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "string"
+            },
+            "description": "Path to the file containing the node",
+            "example": "test/test_file_1.rb"
+          },
+          {
+            "name": "node_id",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "string"
+            },
+            "description": "Unique identifier of the node to retrieve",
+            "example": "node_123"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Node details returned successfully",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "node": {
+                      "type": "object",
+                      "description": "Detailed AST node information"
+                    }
+                  },
+                  "required": [
+                    "node"
+                  ]
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Missing required parameters",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "File or node not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/get_ancestors": {
+      "get": {
+        "summary": "Get ancestors of an AST node",
+        "description": "Returns the ancestor nodes (parent hierarchy) of a specified AST node",
+        "tags": [
+          "AST Analysis"
+        ],
+        "parameters": [
+          {
+            "name": "file_path",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "string"
+            },
+            "description": "Path to the file containing the node",
+            "example": "test/test_file_1.rb"
+          },
+          {
+            "name": "node_id",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "string"
+            },
+            "description": "Unique identifier of the node to get ancestors for",
+            "example": "node_123"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Ancestors returned successfully",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "ancestors": {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "description": "Ancestor AST node"
+                      }
+                    }
+                  },
+                  "required": [
+                    "ancestors"
+                  ]
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Missing required parameters",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "File not found or not indexed",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/find_definition": {
+      "get": {
+        "summary": "Find definition of a symbol",
+        "description": "Locates where a symbol (method, class, variable) is defined",
+        "tags": [
+          "Symbol Analysis"
+        ],
+        "parameters": [
+          {
+            "name": "name",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "string"
+            },
+            "description": "Name of the symbol to find definition for",
+            "example": "TestClass"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Definitions returned successfully",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "definitions": {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "properties": {
+                          "name": {
+                            "type": "string",
+                            "example": "TestClass"
+                          },
+                          "type": {
+                            "type": "string",
+                            "example": "class"
+                          },
+                          "scope": {
+                            "type": "string",
+                            "example": "TestModule"
+                          },
+                          "start_line": {
+                            "type": "integer",
+                            "example": 2
+                          },
+                          "end_line": {
+                            "type": "integer",
+                            "example": 10
+                          },
+                          "file_path": {
+                            "type": "string",
+                            "example": "test/test_file_1.rb"
+                          }
+                        }
+                      }
+                    }
+                  },
+                  "required": [
+                    "definitions"
+                  ]
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Missing required parameter",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/find_references": {
+      "get": {
+        "summary": "Find references to a symbol",
+        "description": "Finds all locations where a symbol is referenced or used",
+        "tags": [
+          "Symbol Analysis"
+        ],
+        "parameters": [
+          {
+            "name": "name",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "string"
+            },
+            "description": "Name of the symbol to find references for",
+            "example": "method_one"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "References returned successfully",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "references": {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "properties": {
+                          "symbol_name": {
+                            "type": "string",
+                            "example": "method_one"
+                          },
+                          "start_line": {
+                            "type": "integer",
+                            "example": 15
+                          },
+                          "end_line": {
+                            "type": "integer",
+                            "example": 15
+                          },
+                          "file_path": {
+                            "type": "string",
+                            "example": "test/test_file_1.rb"
+                          }
+                        }
+                      }
+                    }
+                  },
+                  "required": [
+                    "references"
+                  ]
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Missing required parameter",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/get_call_hierarchy": {
+      "get": {
+        "summary": "Get call hierarchy for a method",
+        "description": "Returns the call hierarchy showing which methods call this method (inbound) and which methods this method calls (outbound)",
+        "tags": [
+          "Symbol Analysis"
+        ],
+        "parameters": [
+          {
+            "name": "file_path",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "string"
+            },
+            "description": "Path to the file containing the method",
+            "example": "test/test_file_1.rb"
+          },
+          {
+            "name": "line",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "integer"
+            },
+            "description": "Line number where the method is defined",
+            "example": 3
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Call hierarchy returned successfully",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "method": {
+                      "type": "object",
+                      "properties": {
+                        "name": {
+                          "type": "string",
+                          "example": "method_one"
+                        },
+                        "file_path": {
+                          "type": "string",
+                          "example": "test/test_file_1.rb"
+                        },
+                        "line": {
+                          "type": "integer",
+                          "example": 3
+                        }
+                      }
+                    },
+                    "inbound_calls": {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "properties": {
+                          "symbol_name": {
+                            "type": "string",
+                            "example": "caller_method"
+                          },
+                          "start_line": {
+                            "type": "integer",
+                            "example": 20
+                          },
+                          "end_line": {
+                            "type": "integer",
+                            "example": 20
+                          },
+                          "file_path": {
+                            "type": "string",
+                            "example": "test/test_file_2.rb"
+                          }
+                        }
+                      }
+                    },
+                    "outbound_calls": {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "properties": {
+                          "name": {
+                            "type": "string",
+                            "example": "called_method"
+                          }
+                        }
+                      }
+                    }
+                  },
+                  "required": [
+                    "method",
+                    "inbound_calls",
+                    "outbound_calls"
+                  ]
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Missing required parameters",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "No method found at specified location",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/search": {
+      "get": {
+        "summary": "Vector search for methods",
+        "description": "Performs vector similarity search to find methods related to a query (currently returns placeholder results)",
+        "tags": [
+          "Search"
+        ],
+        "parameters": [
+          {
+            "name": "query",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "string"
+            },
+            "description": "Search query to find similar methods",
+            "example": "database"
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer"
+            },
+            "description": "Maximum number of results to return",
+            "example": 10
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Search results returned successfully",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "results": {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "properties": {
+                          "name": {
+                            "type": "string",
+                            "example": "method_name"
+                          },
+                          "start_line": {
+                            "type": "integer",
+                            "example": 5
+                          },
+                          "end_line": {
+                            "type": "integer",
+                            "example": 10
+                          },
+                          "file_path": {
+                            "type": "string",
+                            "example": "test/test_file_1.rb"
+                          },
+                          "distance": {
+                            "type": "number",
+                            "example": 0.25
+                          }
+                        }
+                      }
+                    }
+                  },
+                  "required": [
+                    "results"
+                  ]
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Missing required parameter",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  },
+  "components": {
+    "schemas": {
+      "Error": {
+        "type": "object",
+        "properties": {
+          "error": {
+            "type": "string",
+            "description": "Error message describing what went wrong"
+          }
+        },
+        "required": [
+          "error"
+        ]
+      }
+    }
+  }
+}
