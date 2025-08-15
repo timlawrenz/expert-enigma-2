@@ -23,6 +23,17 @@ get '/' do
   { status: 'ok', message: 'Expert Enigma MCP Server is running.' }.to_json
 end
 
+# Serve the MCP manifest file
+get '/mcp.json' do
+  content_type :json
+  begin
+    File.read(File.expand_path('../../mcp.json', __FILE__))
+  rescue Errno::ENOENT
+    status 404
+    { error: 'MCP manifest file not found. Run `ruby generate_mcp_spec.rb` to generate it.' }.to_json
+  end
+end
+
 # List all indexed files
 get '/list_files' do
   content_type :json
