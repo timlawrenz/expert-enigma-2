@@ -30,6 +30,19 @@ class MCPHandler
     end
   end
 
+  # Get all symbols (methods) for a given file
+  def get_symbols(file_path)
+    raise ArgumentError, 'Missing required parameter: file_path' unless file_path
+
+    db = get_db
+    begin
+      symbols = db.execute("SELECT name, type, scope, start_line, end_line FROM symbols WHERE file_id = (SELECT id FROM files WHERE file_path = ?)", [file_path])
+      { symbols: symbols }
+    ensure
+      db.close
+    end
+  end
+
   # Search for methods using vector similarity
   def search(query, limit = 10)
     raise ArgumentError, 'Missing required parameter: query' unless query
