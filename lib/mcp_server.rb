@@ -1,284 +1,392 @@
-require 'sinatra'
 require 'sqlite3'
 require 'json'
 require_relative 'expert_enigma/ast_explorer'
 
-# --- Configuration ---
-set :port, 65432
-set :bind, '0.0.0.0'
 DB_FILE = File.expand_path('../../expert_enigma.db', __FILE__)
 
-# --- JSON-RPC 2.0 Error Codes ---
-JSONRPC_PARSE_ERROR      = -32700
-JSONRPC_INVALID_REQUEST  = -32600
-JSONRPC_METHOD_NOT_FOUND = -32601
-JSONRPC_INVALID_PARAMS   = -32602
-JSONRPC_INTERNAL_ERROR   = -32603
+# MCP Handler class containing all tool methods
+class MCPHandler
+  # --- Database Connection ---
+  def get_db
+    db = SQLite3::Database.new(DB_FILE, readonly: true)
+    db.results_as_hash = true
+    db
+  end
 
-# --- Helper Functions ---
-def get_db
-  db = SQLite3::Database.new(DB_FILE, readonly: true)
-  db.results_as_hash = true
-  db
-end
+  # Simple status check
+  def status
+    { status: 'ok', message: 'Expert Enigma MCP Server is running.' }
+  end
 
-# Normalizes an absolute path to a relative path stored in the database.
-def normalize_path(absolute_path, db)
-  return absolute_path unless absolute_path.start_with?('/')
+  # List all indexed files
+  def list_files
+    db = get_db
+    begin
+      files = db.execute("SELECT DISTINCT file_path FROM files ORDER BY file_path").map { |row| row['file_path'] }
+      { files: files }
+    ensure
+      db.close
+    end
+  end
 
-  # Find a file in the database that is a suffix of the absolute path.
-  # This is more robust than trying to guess the project root.
-  result = db.get_first_row("SELECT file_path FROM files WHERE ? LIKE '%' || file_path", absolute_path)
-  
-  if result
-    return result['file_path']
-  else
-    # If no match is found, return the original path and let the query fail.
-    # This will produce the "File not found" error, which is accurate.
-    return absolute_path
+  # Get all symbols (methods) for a given file
+  def get_symbols(file_path)
+    raise ArgumentError, 'Missing required parameter: file_path' unless file_path
+
+    db = get_db
+    begin
+      symbols = db.execute("SELECT name, type, scope, start_line, end_line FROM symbols WHERE file_id = (SELECT id FROM files WHERE file_path = ?)", [file_path])
+      { symbols: symbols }
+    ensure
+      db.close
+    end
+  end
+
+  # Search for methods using vector similarity
+  def search(query, limit = 10)
+    raise ArgumentError, 'Missing required parameter: query' unless query
+
+    # --- Placeholder for Query Embedding ---
+    # In a real implementation, we would generate an embedding for the query text.
+    # For now, we'll generate a random vector of the correct dimension (64).
+    query_embedding = Array.new(64) { rand(-1.0..1.0) }
+    # --- End Placeholder ---
+
+    db = get_db
+    db.enable_load_extension(true)
+    
+    # Load the VSS extension
+    vector_lib_path = File.expand_path('../../vendor/sqlite-vss/vector0.so', __FILE__)
+    vss_lib_path = File.expand_path('../../vendor/sqlite-vss/vss0.so', __FILE__)
+    db.load_extension(vector_lib_path)
+    db.load_extension(vss_lib_path)
+
+    begin
+      # Find the k-nearest neighbors
+      sql = <<-SQL
+        SELECT
+          s.name,
+          s.start_line,
+          s.end_line,
+          f.file_path,
+          e.distance
+        FROM symbol_embeddings e
+        JOIN symbols s ON s.id = e.rowid
+        JOIN files f ON s.file_id = f.id
+        WHERE vss_search(e.embedding, ?)
+        ORDER BY e.distance
+        LIMIT ?
+      SQL
+
+      results = db.execute(sql, JSON.generate(query_embedding), limit)
+      { results: results }
+    ensure
+      db.close
+    end
+  end
+
+  # Get the full AST for a given file
+  def get_ast(file_path)
+    raise ArgumentError, 'Missing required parameter: file_path' unless file_path
+
+    db = get_db
+    begin
+      result = db.get_first_row("SELECT ast_json FROM files WHERE file_path = ?", file_path)
+      if result
+        # The AST is stored as a JSON string. We return it as parsed JSON.
+        JSON.parse(result['ast_json'])
+      else
+        raise StandardError, 'File not found or not indexed'
+      end
+    ensure
+      db.close
+    end
+  end
+
+  # Query for nodes within a file's AST
+  def query_nodes(file_path, node_type)
+    raise ArgumentError, 'Missing required parameters: file_path and type' unless file_path && node_type
+
+    db = get_db
+    begin
+      ast_json = db.get_first_row("SELECT ast_json FROM files WHERE file_path = ?", file_path)&.dig('ast_json')
+      
+      if ast_json
+        ast_hash = JSON.parse(ast_json)
+        explorer = ExpertEnigma::ASTExplorer.new(ast_hash)
+        nodes = explorer.find_nodes_by_type(node_type)
+        { nodes: nodes }
+      else
+        raise StandardError, 'File not found or not indexed'
+      end
+    ensure
+      db.close
+    end
+  end
+
+  # Get details for a specific node in a file
+  def get_node_details(file_path, node_id)
+    raise ArgumentError, 'Missing required parameters: file_path and node_id' unless file_path && node_id
+
+    db = get_db
+    begin
+      ast_json = db.get_first_row("SELECT ast_json FROM files WHERE file_path = ?", file_path)&.dig('ast_json')
+      
+      if ast_json
+        ast_hash = JSON.parse(ast_json)
+        explorer = ExpertEnigma::ASTExplorer.new(ast_hash)
+        node = explorer.find_node_by_id(node_id)
+        
+        if node
+          { node: node }
+        else
+          raise StandardError, "Node with id '#{node_id}' not found in file '#{file_path}'"
+        end
+      else
+        raise StandardError, "File not found or not indexed"
+      end
+    ensure
+      db.close
+    end
+  end
+
+  # Get ancestors of a specific node in a file
+  def get_ancestors(file_path, node_id)
+    raise ArgumentError, 'Missing required parameters: file_path and node_id' unless file_path && node_id
+
+    db = get_db
+    begin
+      ast_json = db.get_first_row("SELECT ast_json FROM files WHERE file_path = ?", file_path)&.dig('ast_json')
+      
+      if ast_json
+        ast_hash = JSON.parse(ast_json)
+        explorer = ExpertEnigma::ASTExplorer.new(ast_hash)
+        ancestors = explorer.get_ancestors(node_id)
+        { ancestors: ancestors }
+      else
+        raise StandardError, "File not found or not indexed"
+      end
+    ensure
+      db.close
+    end
+  end
+
+  # Find the definition of a symbol
+  def find_definition(name)
+    raise ArgumentError, 'Missing required parameter: name' unless name
+
+    db = get_db
+    begin
+      # This is a simplified implementation. A real version would consider scope.
+      sql = <<-SQL
+        SELECT s.name, s.type, s.scope, s.start_line, s.end_line, f.file_path
+        FROM symbols s
+        JOIN files f ON s.file_id = f.id
+        WHERE s.name = ?
+      SQL
+      
+      definitions = db.execute(sql, name)
+      { definitions: definitions }
+    ensure
+      db.close
+    end
+  end
+
+  # Find all references to a symbol
+  def find_references(name)
+    raise ArgumentError, 'Missing required parameter: name' unless name
+
+    db = get_db
+    begin
+      sql = <<-SQL
+        SELECT r.symbol_name, r.start_line, r.end_line, f.file_path
+        FROM "references" r
+        JOIN files f ON r.file_id = f.id
+        WHERE r.symbol_name = ?
+      SQL
+      
+      references = db.execute(sql, name)
+      { references: references }
+    ensure
+      db.close
+    end
+  end
+
+  # Get the call hierarchy for a method
+  def get_call_hierarchy(file_path, line)
+    raise ArgumentError, 'Missing required parameters: file_path and line' unless file_path && line
+
+    db = get_db
+    begin
+      # Find the method at the given location
+      method = db.get_first_row(
+        "SELECT * FROM symbols WHERE file_id = (SELECT id FROM files WHERE file_path = ?) AND start_line <= ? AND end_line >= ? AND type IN ('method', 'singleton_method') ORDER BY (end_line - start_line) ASC LIMIT 1",
+        [file_path, line, line]
+      )
+
+      unless method
+        raise StandardError, "No method found at #{file_path}:#{line}"
+      end
+
+      # Get inbound calls (callers)
+      inbound_sql = <<-SQL
+        SELECT r.symbol_name, r.start_line, r.end_line, f.file_path
+        FROM "references" r
+        JOIN files f ON r.file_id = f.id
+        WHERE r.symbol_name = ?
+      SQL
+      inbound_calls = db.execute(inbound_sql, [method['name']])
+
+      # Get outbound calls (callees)
+      outbound_calls = []
+      if method['ast_json']
+        method_ast = JSON.parse(method['ast_json'])
+        explorer = ExpertEnigma::ASTExplorer.new(method_ast)
+        send_nodes = explorer.find_outbound_calls(method_ast)
+        
+        send_nodes.each do |node|
+          # This is a simplified representation. A real implementation would
+          # try to resolve the definition of the called method.
+          outbound_calls << {
+            name: node['children'][1].to_s,
+            # Location would require parsing the AST node's loc info, which we don't store yet.
+          }
+        end
+      end
+
+      {
+        method: { name: method['name'], file_path: file_path, line: method['start_line'] },
+        inbound_calls: inbound_calls,
+        outbound_calls: outbound_calls.uniq # Uniq to remove duplicate calls
+      }
+
+    ensure
+      db.close
+    end
   end
 end
 
+# --- Server Setup ---
+# Create a simple JSON-RPC 2.0 server using WEBrick
+require 'webrick'
+require 'json'
 
-def jsonrpc_error(id, code, message, data = nil)
-  {
-    jsonrpc: '2.0',
-    id: id,
-    error: { code: code, message: message, data: data }
-  }.to_json
-end
+class JSONRPCServer
+  def initialize(handler, port, host)
+    @handler = handler
+    @port = port
+    @host = host
+  end
 
-def jsonrpc_success(id, result)
-  {
-    jsonrpc: '2.0',
-    id: id,
-    result: result
-  }.to_json
-end
+  def start
+    server = WEBrick::HTTPServer.new(
+      :Port => @port,
+      :BindAddress => @host,
+      :Logger => WEBrick::Log.new(STDERR, WEBrick::Log::INFO),
+      :AccessLog => []
+    )
 
-# --- Tool Definitions ---
-# This is where we manually define the tools our server supports.
-TOOLS = {
-  'list_files' => {
-    description: 'Returns a list of all files that have been indexed in the database.',
-    inputSchema: { type: 'object', properties: {} }
-  },
-  'get_symbols' => {
-    description: 'Returns all symbols (methods, classes, etc.) defined in a specified file.',
-    inputSchema: {
-      type: 'object',
-      properties: {
-        file_path: { type: 'string', description: 'The path to the file.' }
-      },
-      required: ['file_path']
-    }
-  },
-  'get_ast' => {
-    description: 'Returns the complete Abstract Syntax Tree (AST) for a specified file.',
-    inputSchema: {
-      type: 'object',
-      properties: {
-        file_path: { type: 'string', description: 'The path to the file.' }
-      },
-      required: ['file_path']
-    }
-  },
-  'query_nodes' => {
-    description: "Finds all nodes of a specific type within a file's AST.",
-    inputSchema: {
-      type: 'object',
-      properties: {
-        file_path: { type: 'string', description: 'The path to the file.' },
-        type: { type: 'string', description: 'The type of node to find (e.g., "def").' }
-      },
-      required: ['file_path', 'type']
-    }
-  },
-  'get_node_details' => {
-    description: "Returns detailed information about a specific node in a file's AST.",
-    inputSchema: {
-      type: 'object',
-      properties: {
-        file_path: { type: 'string', description: 'The path to the file.' },
-        node_id: { type: 'string', description: 'The ID of the node.' }
-      },
-      required: ['file_path', 'node_id']
-    }
-  },
-  'get_ancestors' => {
-    description: 'Returns the ancestor nodes (parent hierarchy) of a specified AST node.',
-    inputSchema: {
-      type: 'object',
-      properties: {
-        file_path: { type: 'string', description: 'The path to the file.' },
-        node_id: { type: 'string', description: 'The ID of the node.' }
-      },
-      required: ['file_path', 'node_id']
-    }
-  },
-  'find_definition' => {
-    description: 'Locates where a symbol (method, class, variable) is defined.',
-    inputSchema: {
-      type: 'object',
-      properties: {
-        name: { type: 'string', description: 'The name of the symbol.' }
-      },
-      required: ['name']
-    }
-  },
-  'find_references' => {
-    description: 'Finds all locations where a symbol is referenced or used.',
-    inputSchema: {
-      type: 'object',
-      properties: {
-        name: { type: 'string', description: 'The name of the symbol.' }
-      },
-      required: ['name']
-    }
-  }
-}.freeze
-
-# --- Method Implementations ---
-MCP_METHODS = {
-  'tools/list' => ->(params, db) {
-    { tools: TOOLS.map { |name, definition| { name: name }.merge(definition) } }
-  },
-  'tools/call' => ->(params, db) {
-    tool_name = params['name']
-    tool_params = params['arguments']
-
-    unless tool_name && MCP_METHODS.key?(tool_name)
-      raise "Tool not found: #{tool_name}"
+    server.mount_proc '/' do |req, res|
+      handle_request(req, res)
     end
 
-    # Execute the actual tool method
-    MCP_METHODS[tool_name].call(tool_params, db)
-  },
-  'initialize' => ->(params, db) {
-    {
-      protocolVersion: '2025-06-18',
-      serverInfo: {
-        name: 'expert-enigma',
-        version: '0.1.0'
-      },
-      capabilities: {
-        tools: {}
-      }
-    }
-  },
-  'list_files' => ->(params, db) {
-    files = db.execute("SELECT DISTINCT file_path FROM files ORDER BY file_path").map { |row| row['file_path'] }
-    { files: files }
-  },
-  'get_symbols' => ->(params, db) {
-    file_path = normalize_path(params['file_path'], db)
-    raise ArgumentError, 'Missing required parameter: file_path' unless file_path
-    symbols = db.execute("SELECT name, type, scope, start_line, end_line FROM symbols WHERE file_id = (SELECT id FROM files WHERE file_path = ?)", [file_path])
-    { symbols: symbols }
-  },
-  'get_ast' => ->(params, db) {
-    file_path = normalize_path(params['file_path'], db)
-    raise ArgumentError, 'Missing required parameter: file_path' unless file_path
-    result = db.get_first_row("SELECT ast_json FROM files WHERE file_path = ?", file_path)
-    raise "File not found or not indexed: #{file_path}" unless result
-    JSON.parse(result['ast_json'])
-  },
-  'query_nodes' => ->(params, db) {
-    file_path = normalize_path(params['file_path'], db)
-    node_type = params['type']
-    raise ArgumentError, 'Missing required parameters: file_path and type' unless file_path && node_type
+    trap('INT') { server.shutdown }
+    server.start
+  end
+
+  private
+
+  def handle_request(req, res)
+    res['Content-Type'] = 'application/json'
     
-    ast_json = db.get_first_row("SELECT ast_json FROM files WHERE file_path = ?", file_path)&.dig('ast_json')
-    raise "File not found or not indexed: #{file_path}" unless ast_json
-
-    ast_hash = JSON.parse(ast_json)
-    explorer = ExpertEnigma::ASTExplorer.new(ast_hash)
-    nodes = explorer.find_nodes_by_type(node_type)
-    { nodes: nodes }
-  },
-  'get_node_details' => ->(params, db) {
-    file_path = normalize_path(params['file_path'], db)
-    node_id = params['node_id']
-    raise ArgumentError, 'Missing required parameters: file_path and node_id' unless file_path && node_id
-
-    ast_json = db.get_first_row("SELECT ast_json FROM files WHERE file_path = ?", file_path)&.dig('ast_json')
-    raise "File not found or not indexed: #{file_path}" unless ast_json
-
-    ast_hash = JSON.parse(ast_json)
-    explorer = ExpertEnigma::ASTExplorer.new(ast_hash)
-    node = explorer.find_node_by_id(node_id)
-    raise "Node with id '#{node_id}' not found in file '#{file_path}'" unless node
-    { node: node }
-  },
-  'get_ancestors' => ->(params, db) {
-    file_path = normalize_path(params['file_path'], db)
-    node_id = params['node_id']
-    raise ArgumentError, 'Missing required parameters: file_path and node_id' unless file_path && node_id
-
-    ast_json = db.get_first_row("SELECT ast_json FROM files WHERE file_path = ?", file_path)&.dig('ast_json')
-    raise "File not found or not indexed: #{file_path}" unless ast_json
-
-    ast_hash = JSON.parse(ast_json)
-    explorer = ExpertEnigma::ASTExplorer.new(ast_hash)
-    ancestors = explorer.get_ancestors(node_id)
-    { ancestors: ancestors }
-  },
-  'find_definition' => ->(params, db) {
-    name = params['name']
-    raise ArgumentError, 'Missing required parameter: name' unless name
-
-    sql = "SELECT s.name, s.type, s.scope, s.start_line, s.end_line, f.file_path FROM symbols s JOIN files f ON s.file_id = f.id WHERE s.name = ?"
-    definitions = db.execute(sql, name)
-    { definitions: definitions }
-  },
-  'find_references' => ->(params, db) {
-    name = params['name']
-    raise ArgumentError, 'Missing required parameter: name' unless name
-
-    sql = "SELECT r.symbol_name, r.start_line, r.end_line, f.file_path FROM \"references\" r JOIN files f ON r.file_id = f.id WHERE r.symbol_name = ?"
-    references = db.execute(sql, name)
-    { references: references }
-  }
-}.freeze
-
-
-# --- Sinatra Routes ---
-get '/' do
-  content_type :json
-  { status: 'ok', message: 'Expert Enigma MCP Server is running.' }.to_json
-end
-
-post '/' do
-  content_type :json
-  request_body = request.body.read
-  
-  begin
-    payload = JSON.parse(request_body)
-  rescue JSON::ParserError
-    return jsonrpc_error(nil, JSONRPC_PARSE_ERROR, 'Invalid JSON')
+    if req.request_method == 'POST'
+      begin
+        request_data = JSON.parse(req.body)
+        response = process_jsonrpc_request(request_data)
+        res.body = JSON.generate(response)
+      rescue JSON::ParserError
+        res.body = JSON.generate(create_error_response(nil, -32700, 'Parse error'))
+      rescue => e
+        res.body = JSON.generate(create_error_response(nil, -32603, "Internal error: #{e.message}"))
+      end
+    elsif req.request_method == 'GET' && req.path == '/'
+      # Simple status endpoint for compatibility
+      res.body = JSON.generate({ status: 'ok', message: 'Expert Enigma MCP Server is running.' })
+    else
+      res.status = 405
+      res.body = JSON.generate(create_error_response(nil, -32601, 'Method not found'))
+    end
   end
 
-  id = payload['id']
-  method_name = payload['method']
-  params = payload['params'] || {}
+  def process_jsonrpc_request(request)
+    # Validate JSON-RPC 2.0 format
+    unless request['jsonrpc'] == '2.0' && request['method']
+      return create_error_response(request['id'], -32600, 'Invalid Request')
+    end
 
-  unless method_name && MCP_METHODS.key?(method_name)
-    return jsonrpc_error(id, JSONRPC_METHOD_NOT_FOUND, "Method not found: #{method_name}")
+    method_name = request['method']
+    params = request['params'] || []
+    id = request['id']
+
+    # Check if method exists
+    unless @handler.respond_to?(method_name)
+      return create_error_response(id, -32601, 'Method not found')
+    end
+
+    begin
+      # Call the method with parameters
+      if params.is_a?(Array)
+        result = @handler.send(method_name, *params)
+      elsif params.is_a?(Hash)
+        result = @handler.send(method_name, **params)
+      else
+        result = @handler.send(method_name)
+      end
+
+      # Return success response
+      create_success_response(id, result)
+    rescue ArgumentError => e
+      create_error_response(id, -32602, "Invalid params: #{e.message}")
+    rescue => e
+      # Check if it's a Jimson error (for compatibility with our error handling)
+      if e.class.name.include?('Jimson')
+        error_code = case e.class.name
+        when /InvalidParams/
+          -32602
+        when /InternalError/
+          -32603
+        else
+          -32603
+        end
+        create_error_response(id, error_code, e.message)
+      else
+        create_error_response(id, -32603, "Internal error: #{e.message}")
+      end
+    end
   end
 
-  db = get_db
-  begin
-    result = MCP_METHODS[method_name].call(params, db)
-    jsonrpc_success(id, result)
-  rescue ArgumentError => e
-    jsonrpc_error(id, JSONRPC_INVALID_PARAMS, e.message)
-  rescue => e
-    puts "Internal error: #{e.message}"
-    puts e.backtrace
-    jsonrpc_error(id, JSONRPC_INTERNAL_ERROR, "Internal server error: #{e.message}")
-  ensure
-    db.close
+  def create_success_response(id, result)
+    {
+      jsonrpc: '2.0',
+      result: result,
+      id: id
+    }
+  end
+
+  def create_error_response(id, code, message)
+    {
+      jsonrpc: '2.0',
+      error: {
+        code: code,
+        message: message
+      },
+      id: id
+    }
   end
 end
 
-puts "Expert Enigma MCP Server starting on port #{settings.port}"
+handler = MCPHandler.new
+server = JSONRPCServer.new(handler, 65432, '0.0.0.0')
+
+puts "Expert Enigma MCP Server starting on port 65432"
+server.start

@@ -8,6 +8,7 @@ gem "sqlite3"
 gem "onnxruntime"
 gem "sinatra"
 gem "flog"
+gem "jimson"
 
 # Testing and documentation gems
 gem "rspec-rails"
