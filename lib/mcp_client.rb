@@ -71,7 +71,7 @@ class MCPClient
   #   client.search('method', 5)
   #   # => { "results" => [{"name" => "method_one", "start_line" => 3, "end_line" => 5, "file_path" => "test/test_file_1.rb", "distance" => 0.25}] }
   def search(query, limit = 10)
-    call_method('search', query, limit)
+    call_method('search', { query: query, limit: limit })
   end
 
   # Get the full Abstract Syntax Tree (AST) for a given file

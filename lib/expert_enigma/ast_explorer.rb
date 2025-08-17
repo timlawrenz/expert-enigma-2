@@ -25,21 +25,24 @@ module ExpertEnigma
     # @return [Hash, nil] The found node or nil.
     def find_node_by_id(id)
       path_parts = id.split('.')
-      # Drop the 'root' part for traversal
-      path_parts.shift if path_parts.first == 'root'
-      
       current = @ast
+      
+      # If the first part is 'root', we start from @ast, otherwise it's an error.
+      return nil unless path_parts.shift == 'root'
+
       path_parts.each do |part|
         if part == 'children' && current.is_a?(Hash)
           current = current['children']
         elsif current.is_a?(Array) && part.match?(/^\d+$/)
-          current = current[part.to_i]
+          index = part.to_i
+          return nil unless index < current.length
+          current = current[index]
         else
-          # Invalid path part
-          return nil
+          return nil # Invalid path component
         end
       end
-      current.is_a?(Hash) ? current : nil
+      
+      (current.is_a?(Hash) && current.key?('type')) ? { id: id, **current } : nil
     end
 
     # Gets the ancestor nodes for a given node ID.
@@ -50,10 +53,10 @@ module ExpertEnigma
       ancestors = []
       path_parts = id.split('.')
       # Iterate up to the second to last part to get all parents
-      (1...path_parts.length).each do |i|
-        ancestor_id = path_parts[0...i].join('.')
+      (0...path_parts.length - 1).each do |i|
+        ancestor_id = path_parts[0..i].join('.')
         node = find_node_by_id(ancestor_id)
-        ancestors << { id: ancestor_id, **node } if node
+        ancestors << node if node
       end
       ancestors
     end

@@ -1,5 +1,6 @@
 require 'sqlite3'
 require 'json'
+require 'webrick'
 require_relative 'expert_enigma/ast_explorer'
 
 DB_FILE = File.expand_path('../../expert_enigma.db', __FILE__)
@@ -35,7 +36,12 @@ class MCPHandler
 
     db = get_db
     begin
-      symbols = db.execute("SELECT name, type, scope, start_line, end_line FROM symbols WHERE file_id = (SELECT id FROM files WHERE file_path = ?)", [file_path])
+      file_id = db.get_first_value("SELECT id FROM files WHERE file_path = ?", file_path)
+      unless file_id
+        return { status: 'error', message: "File not found: #{file_path}" }
+      end
+      
+      symbols = db.execute("SELECT name, type, scope, start_line, end_line FROM symbols WHERE file_id = ?", [file_id])
       { symbols: symbols }
     ensure
       db.close
@@ -96,7 +102,7 @@ class MCPHandler
         # The AST is stored as a JSON string. We return it as parsed JSON.
         JSON.parse(result['ast_json'])
       else
-        raise StandardError, 'File not found or not indexed'
+        { status: 'error', message: "File not found: #{file_path}" }
       end
     ensure
       db.close
@@ -117,7 +123,7 @@ class MCPHandler
         nodes = explorer.find_nodes_by_type(node_type)
         { nodes: nodes }
       else
-        raise StandardError, 'File not found or not indexed'
+        { status: 'error', message: "File not found: #{file_path}" }
       end
     ensure
       db.close
@@ -140,10 +146,10 @@ class MCPHandler
         if node
           { node: node }
         else
-          raise StandardError, "Node with id '#{node_id}' not found in file '#{file_path}'"
+          { status: 'error', message: "Node with id '#{node_id}' not found in file '#{file_path}'" }
         end
       else
-        raise StandardError, "File not found or not indexed"
+        { status: 'error', message: "File not found: #{file_path}" }
       end
     ensure
       db.close
@@ -164,7 +170,7 @@ class MCPHandler
         ancestors = explorer.get_ancestors(node_id)
         { ancestors: ancestors }
       else
-        raise StandardError, "File not found or not indexed"
+        { status: 'error', message: "File not found: #{file_path}" }
       end
     ensure
       db.close
@@ -230,10 +236,10 @@ class MCPHandler
 
       # Get inbound calls (callers)
       inbound_sql = <<-SQL
-        SELECT r.symbol_name, r.start_line, r.end_line, f.file_path
-        FROM "references" r
-        JOIN files f ON r.file_id = f.id
-        WHERE r.symbol_name = ?
+        SELECT s.name as symbol_name, s.start_line, s.end_line, f.file_path
+        FROM symbols s
+        JOIN files f ON s.file_id = f.id
+        WHERE s.name = ?
       SQL
       inbound_calls = db.execute(inbound_sql, [method['name']])
 
@@ -266,47 +272,53 @@ class MCPHandler
   end
 end
 
-# --- Server Setup ---
-# Create a simple JSON-RPC 2.0 server using WEBrick
-require 'webrick'
-require 'json'
-
-class JSONRPCServer
-  def initialize(handler, port, host)
-    @handler = handler
+class McpServer
+  def initialize(port = 65432, host = '0.0.0.0')
+    @handler = MCPHandler.new
     @port = port
     @host = host
+    @server = WEBrick::HTTPServer.new(
+      :Port => @port,
+      :BindAddress => @host,
+      :Logger => WEBrick::Log.new(STDERR, WEBrick::Log::DEBUG),
+      :AccessLog => []
+    )
+    @server.mount_proc '/' do |req, res|
+      handle_request(req, res)
+    end
   end
 
   def start
-    server = WEBrick::HTTPServer.new(
-      :Port => @port,
-      :BindAddress => @host,
-      :Logger => WEBrick::Log.new(STDERR, WEBrick::Log::INFO),
-      :AccessLog => []
-    )
-
-    server.mount_proc '/' do |req, res|
-      handle_request(req, res)
-    end
-
-    trap('INT') { server.shutdown }
-    server.start
+    trap('INT') { @server.shutdown }
+    @server.start
   end
 
+  def stop
+    @server.shutdown
+  end
+
+  def port
+    @server.config[:Port]
+  end
+  
   private
 
   def handle_request(req, res)
+    @server.logger.info("Received request: #{req.request_method} #{req.path}")
     res['Content-Type'] = 'application/json'
     
     if req.request_method == 'POST'
       begin
         request_data = JSON.parse(req.body)
+        @server.logger.debug("Request body: #{request_data.inspect}")
         response = process_jsonrpc_request(request_data)
+        @server.logger.debug("Response body: #{response.inspect}")
         res.body = JSON.generate(response)
       rescue JSON::ParserError
+        @server.logger.error("JSON Parse error")
         res.body = JSON.generate(create_error_response(nil, -32700, 'Parse error'))
       rescue => e
+        @server.logger.error("Internal error: #{e.message}")
         res.body = JSON.generate(create_error_response(nil, -32603, "Internal error: #{e.message}"))
       end
     elsif req.request_method == 'GET' && req.path == '/'
@@ -385,8 +397,8 @@ class JSONRPCServer
   end
 end
 
-handler = MCPHandler.new
-server = JSONRPCServer.new(handler, 65432, '0.0.0.0')
-
-puts "Expert Enigma MCP Server starting on port 65432"
-server.start
+if __FILE__ == $0
+  server = McpServer.new
+  puts "Expert Enigma MCP Server starting on port #{server.port}"
+  server.start
+end

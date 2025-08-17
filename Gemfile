@@ -3,13 +3,13 @@
 source "https://rubygems.org"
 
 # gem "rails"
-gem "parser"
-gem "sqlite3"
-gem "onnxruntime"
-gem "sinatra"
-gem "flog"
 gem "jimson"
-
-# Testing and documentation gems
-gem "rspec-rails"
+gem "webrick"
+gem "sqlite3"
 gem "rswag"
+gem "rspec-rails"
+gem "parser"
+gem "rainbow"
+gem "onnxruntime"
+gem "tokenizers"
+

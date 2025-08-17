@@ -57,3 +57,4 @@ build-iPhoneSimulator/
 .venv/
 expert_enigma.db
 sinatra.log
+expert_enigma.db
