@@ -9,7 +9,8 @@ require 'pathname'
 require_relative '../lib/expert_enigma/embedding_generator'
 
 # --- Configuration ---
-TEST_DIR = File.expand_path('../test', __dir__)
+# If a directory is provided as a command-line argument, use it. Otherwise, default to the 'test' directory.
+TARGET_DIR = ARGV[0] || File.expand_path('../test', __dir__)
 DB_FILE = File.expand_path('../expert_enigma.db', __dir__)
 MODEL_FILE = File.expand_path('../models/gnn_encoder.onnx', __dir__)
 
@@ -169,10 +170,10 @@ def main
   )
   insert_embedding_stmt = db.prepare("INSERT INTO symbol_embeddings (rowid, embedding) VALUES (?, ?)")
 
-  puts "Scanning for Ruby files in #{TEST_DIR}..."
+  puts "Scanning for Ruby files in #{TARGET_DIR}..."
   
-  Dir.glob("#{TEST_DIR}/**/*.rb").each do |file_path|
-    relative_path = Pathname.new(file_path).relative_path_from(Pathname.new(TEST_DIR)).to_s
+  Dir.glob("#{TARGET_DIR}/**/*.rb").each do |file_path|
+    relative_path = Pathname.new(file_path).relative_path_from(Pathname.new(TARGET_DIR)).to_s
     puts "Processing #{relative_path}..."
     
     begin

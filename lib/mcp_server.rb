@@ -22,6 +22,24 @@ def get_db
   db
 end
 
+# Normalizes an absolute path to a relative path stored in the database.
+def normalize_path(absolute_path, db)
+  return absolute_path unless absolute_path.start_with?('/')
+
+  # Find a file in the database that is a suffix of the absolute path.
+  # This is more robust than trying to guess the project root.
+  result = db.get_first_row("SELECT file_path FROM files WHERE ? LIKE '%' || file_path", absolute_path)
+  
+  if result
+    return result['file_path']
+  else
+    # If no match is found, return the original path and let the query fail.
+    # This will produce the "File not found" error, which is accurate.
+    return absolute_path
+  end
+end
+
+
 def jsonrpc_error(id, code, message, data = nil)
   {
     jsonrpc: '2.0',
@@ -125,6 +143,17 @@ MCP_METHODS = {
   'tools/list' => ->(params, db) {
     { tools: TOOLS.map { |name, definition| { name: name }.merge(definition) } }
   },
+  'tools/call' => ->(params, db) {
+    tool_name = params['name']
+    tool_params = params['arguments']
+
+    unless tool_name && MCP_METHODS.key?(tool_name)
+      raise "Tool not found: #{tool_name}"
+    end
+
+    # Execute the actual tool method
+    MCP_METHODS[tool_name].call(tool_params, db)
+  },
   'initialize' => ->(params, db) {
     {
       protocolVersion: '2025-06-18',
@@ -142,20 +171,20 @@ MCP_METHODS = {
     { files: files }
   },
   'get_symbols' => ->(params, db) {
-    file_path = params['file_path']
+    file_path = normalize_path(params['file_path'], db)
     raise ArgumentError, 'Missing required parameter: file_path' unless file_path
     symbols = db.execute("SELECT name, type, scope, start_line, end_line FROM symbols WHERE file_id = (SELECT id FROM files WHERE file_path = ?)", [file_path])
     { symbols: symbols }
   },
   'get_ast' => ->(params, db) {
-    file_path = params['file_path']
+    file_path = normalize_path(params['file_path'], db)
     raise ArgumentError, 'Missing required parameter: file_path' unless file_path
     result = db.get_first_row("SELECT ast_json FROM files WHERE file_path = ?", file_path)
     raise "File not found or not indexed: #{file_path}" unless result
     JSON.parse(result['ast_json'])
   },
   'query_nodes' => ->(params, db) {
-    file_path = params['file_path']
+    file_path = normalize_path(params['file_path'], db)
     node_type = params['type']
     raise ArgumentError, 'Missing required parameters: file_path and type' unless file_path && node_type
     
@@ -168,7 +197,7 @@ MCP_METHODS = {
     { nodes: nodes }
   },
   'get_node_details' => ->(params, db) {
-    file_path = params['file_path']
+    file_path = normalize_path(params['file_path'], db)
     node_id = params['node_id']
     raise ArgumentError, 'Missing required parameters: file_path and node_id' unless file_path && node_id
 
@@ -182,7 +211,7 @@ MCP_METHODS = {
     { node: node }
   },
   'get_ancestors' => ->(params, db) {
-    file_path = params['file_path']
+    file_path = normalize_path(params['file_path'], db)
     node_id = params['node_id']
     raise ArgumentError, 'Missing required parameters: file_path and node_id' unless file_path && node_id
 
@@ -211,6 +240,7 @@ MCP_METHODS = {
     { references: references }
   }
 }.freeze
+
 
 # --- Sinatra Routes ---
 get '/' do
