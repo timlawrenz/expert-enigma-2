@@ -1,4 +1,3 @@
-require 'jimson'
 require 'sqlite3'
 require 'json'
 require_relative 'expert_enigma/ast_explorer'
