@@ -1,4 +1,5 @@
 require 'minitest/autorun'
+ENV['MT_NO_PLUGINS'] = '1'
 require_relative '../../lib/mcp_server'
 require_relative '../../lib/mcp_client'
 require 'fileutils'
@@ -22,8 +23,13 @@ end
 
 rebuild_test_database
 
+SERVER_THREAD = Thread.new { McpServer.run! }
+sleep 0.1 # Give the server a moment to start
+
 Minitest.after_run do
   puts "\nTearing down e2e test suite..."
+  McpServer.quit!
+  SERVER_THREAD.join
   FileUtils.rm_f(DB_FILE)
   puts "Cleaned up test database."
 end
@@ -32,19 +38,7 @@ end
 
 class TestMcpE2e < Minitest::Test
   def setup
-    # Use port 0 to let the OS pick an available ephemeral port
-    @server = McpServer.new(0)
-    @server_thread = Thread.new { @server.start }
-    # Give the server a moment to start up and get the actual port
-    sleep 0.1
-    @port = @server.port
-  end
-
-
-
-  def teardown
-    @server.stop
-    @server_thread.join
+    @port = McpServer.port
   end
 
   def test_client_server_communication

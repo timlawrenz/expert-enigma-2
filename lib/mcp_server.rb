@@ -1,6 +1,6 @@
 require 'sqlite3'
 require 'json'
-require 'sinatra'
+require 'sinatra/base'
 require_relative 'expert_enigma/ast_explorer'
 
 DB_FILE = 'expert_enigma.db'
@@ -176,60 +176,69 @@ class MCPHandler
   end
 end
 
-# Sinatra App
-set :port, 65432
-set :bind, '0.0.0.0'
+class McpServer < Sinatra::Base
+  set :port, 65432
+  set :bind, '0.0.0.0'
 
-handler = MCPHandler.new
+  handler = MCPHandler.new
 
-def create_success_response(id, result)
-  {
-    jsonrpc: '2.0',
-    result: result,
-    id: id
-  }.to_json
-end
-
-def create_error_response(id, code, message)
-  {
-    jsonrpc: '2.0',
-    error: {
-      code: code,
-      message: message
-    },
-    id: id
-  }.to_json
-end
-
-post '/' do
-  content_type :json
-  begin
-    request_data = JSON.parse(request.body.read)
-    id = request_data['id']
-    method_name = request_data['method']
-    params = request_data['params']
-
-    unless handler.respond_to?(method_name)
-      return create_error_response(id, -32601, 'Method not found')
-    end
-
-    if params.is_a?(Hash)
-      result = handler.send(method_name, **params)
-    else
-      result = handler.send(method_name, *params)
-    end
-
-    create_success_response(id, result)
-  rescue JSON::ParserError
-    create_error_response(nil, -32700, 'Parse error')
-  rescue ArgumentError => e
-    create_error_response(id, -32602, "Invalid params: #{e.message}")
-  rescue => e
-    create_error_response(id, -32603, "Internal error: #{e.message}")
+  def create_success_response(id, result)
+    {
+      jsonrpc: '2.0',
+      result: result,
+      id: id
+    }.to_json
   end
-end
 
-get '/' do
-  content_type :json
-  handler.status.to_json
+  def create_error_response(id, code, message)
+    {
+      jsonrpc: '2.0',
+      error: {
+        code: code,
+        message: message
+      },
+      id: id
+    }.to_json
+  end
+
+  post '/' do
+    content_type :json
+    begin
+      request_data = JSON.parse(request.body.read)
+      id = request_data['id']
+      method_name = request_data['method']
+      params = request_data['params']
+
+      unless handler.respond_to?(method_name)
+        return create_error_response(id, -32601, 'Method not found')
+      end
+
+      if params.is_a?(Hash)
+        result = handler.send(method_name, **params)
+      else
+        result = handler.send(method_name, *params)
+      end
+
+      create_success_response(id, result)
+    rescue JSON::ParserError
+      create_error_response(nil, -32700, 'Parse error')
+    rescue ArgumentError => e
+      create_error_response(id, -32602, "Invalid params: #{e.message}")
+    rescue => e
+      create_error_response(id, -32603, "Internal error: #{e.message}")
+    end
+  end
+
+  get '/' do
+    content_type :json
+    handler.status.to_json
+  end
+
+  def self.start
+    run!
+  end
+
+  def self.stop
+    quit!
+  end
 end
