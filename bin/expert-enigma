@@ -5,6 +5,7 @@
 # This is the main command-line interface for the Expert Enigma MCP server
 
 require 'optparse'
+require_relative '../lib/expert_enigma/index_builder'
 
 class ExpertEnigmaCLI
   VALID_COMMANDS = %w[index start stop status serve].freeze
@@ -65,8 +66,48 @@ class ExpertEnigmaCLI
   end
 
   def handle_index_command(args)
-    puts "Index command called with arguments: #{args.join(' ')}"
-    puts "Note: Command parsing successful - implementation pending"
+    if args.empty?
+      puts "Error: No path provided for index command"
+      puts "Usage: expert-enigma index <path>"
+      exit(1)
+    end
+
+    if args.length > 1
+      puts "Error: Too many arguments for index command"
+      puts "Usage: expert-enigma index <path>"
+      exit(1)
+    end
+
+    target_path = File.expand_path(args[0])
+
+    # Validate target path
+    unless File.exist?(target_path)
+      puts "Error: Path does not exist: #{target_path}"
+      exit(1)
+    end
+
+    unless File.directory?(target_path)
+      puts "Error: Path is not a directory: #{target_path}"
+      exit(1)
+    end
+
+    # Set up paths for the expert_enigma directory and database
+    expert_enigma_dir = File.join(target_path, '.expert_enigma')
+    db_file = File.join(expert_enigma_dir, 'expert_enigma.db')
+
+    begin
+      puts "Indexing repository at: #{target_path}"
+      
+      # Create the IndexBuilder and run it
+      builder = ExpertEnigma::IndexBuilder.new(target_path, db_file)
+      builder.build_index
+      
+      puts "✓ Indexing completed successfully"
+      puts "✓ Database created at: #{db_file}"
+    rescue => e
+      puts "Error during indexing: #{e.message}"
+      exit(1)
+    end
   end
 
   def handle_start_command(args)
