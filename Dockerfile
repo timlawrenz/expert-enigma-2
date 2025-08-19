@@ -19,7 +19,9 @@ RUN apt-get update && apt-get install -y \
 COPY Gemfile Gemfile.lock ./
 
 # Install Ruby gems with SSL workaround for development environment
-# Note: In production, SSL verification should be enabled
+# Note: In production environments with proper SSL certificates, remove the
+# ssl_verify_mode workaround and use: RUN bundle install
+# For development builds in environments with SSL issues, the workaround is needed
 ENV BUNDLE_FORCE_RUBY_PLATFORM=1
 RUN bundle config set --global ssl_verify_mode 0 && \
     bundle install && \
