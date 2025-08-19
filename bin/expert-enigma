@@ -1,0 +1,101 @@
+#!/usr/bin/env ruby
+# frozen_string_literal: true
+
+# Expert Enigma CLI
+# This is the main command-line interface for the Expert Enigma MCP server
+
+require 'optparse'
+
+class ExpertEnigmaCLI
+  VALID_COMMANDS = %w[index start stop status serve].freeze
+
+  def initialize
+    @options = {}
+  end
+
+  def run(args)
+    if args.empty?
+      show_usage
+      exit(1)
+    end
+
+    command = args[0]
+    
+    unless VALID_COMMANDS.include?(command)
+      puts "Error: Unknown command '#{command}'"
+      puts
+      show_usage
+      exit(1)
+    end
+
+    case command
+    when 'index'
+      handle_index_command(args[1..-1])
+    when 'start'
+      handle_start_command(args[1..-1])
+    when 'stop'
+      handle_stop_command(args[1..-1])
+    when 'status'
+      handle_status_command(args[1..-1])
+    when 'serve'
+      handle_serve_command(args[1..-1])
+    end
+  end
+
+  private
+
+  def show_usage
+    puts "Usage: expert-enigma [index|start|serve|stop|status] [options]"
+    puts
+    puts "Commands:"
+    puts "  index <path>            Scans the repository at <path> and builds the database"
+    puts "  start <path> [--port]   Starts the MCP server for the project at <path>"
+    puts "  stop                    Stops the currently running server process"
+    puts "  status                  Reports whether the server is running and for which project"
+    puts "  serve <path> [--port]   Convenience command that runs index if needed, then start"
+    puts
+    puts "Options:"
+    puts "  --port <port>           Specify the port number (default: 65432)"
+    puts "  --help, -h              Show this help message"
+  end
+
+  def show_help_and_exit
+    show_usage
+    exit(0)
+  end
+
+  def handle_index_command(args)
+    puts "Index command called with arguments: #{args.join(' ')}"
+    puts "Note: Command parsing successful - implementation pending"
+  end
+
+  def handle_start_command(args)
+    puts "Start command called with arguments: #{args.join(' ')}"
+    puts "Note: Command parsing successful - implementation pending"
+  end
+
+  def handle_stop_command(args)
+    puts "Stop command called with arguments: #{args.join(' ')}"
+    puts "Note: Command parsing successful - implementation pending"
+  end
+
+  def handle_status_command(args)
+    puts "Status command called with arguments: #{args.join(' ')}"
+    puts "Note: Command parsing successful - implementation pending"
+  end
+
+  def handle_serve_command(args)
+    puts "Serve command called with arguments: #{args.join(' ')}"
+    puts "Note: Command parsing successful - implementation pending"
+  end
+end
+
+# Handle --help and -h at the top level
+if ARGV.include?('--help') || ARGV.include?('-h')
+  cli = ExpertEnigmaCLI.new
+  cli.send(:show_help_and_exit)
+end
+
+# Run the CLI
+cli = ExpertEnigmaCLI.new
+cli.run(ARGV)
