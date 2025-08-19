@@ -268,8 +268,83 @@ class ExpertEnigmaCLI
   end
 
   def handle_stop_command(args)
-    puts "Stop command called with arguments: #{args.join(' ')}"
-    puts "Note: Command parsing successful - implementation pending"
+    # Determine target path - use current directory if no path provided
+    target_path = if args.empty?
+                    Dir.pwd
+                  else
+                    File.expand_path(args[0])
+                  end
+
+    # Set up paths
+    expert_enigma_dir = File.join(target_path, '.expert_enigma')
+    pid_file = File.join(expert_enigma_dir, 'server.pid')
+
+    # Check if .expert_enigma directory exists
+    unless File.directory?(expert_enigma_dir)
+      puts "Expert Enigma server is not running."
+      puts "No .expert_enigma directory found in #{target_path}"
+      return
+    end
+
+    # Check if PID file exists
+    unless File.exist?(pid_file)
+      puts "Expert Enigma server is not running."
+      return
+    end
+
+    # Read PID and check if process is running
+    pid = File.read(pid_file).strip.to_i
+    unless process_running?(pid)
+      puts "Expert Enigma server is not running."
+      # Clean up stale PID file
+      File.delete(pid_file)
+      puts "Removed stale PID file."
+      return
+    end
+
+    # Process is running, attempt to stop it
+    project_name = File.basename(target_path)
+    puts "Stopping Expert Enigma server for project '#{project_name}' (PID: #{pid})..."
+
+    begin
+      # Try graceful termination first (SIGTERM)
+      Process.kill('TERM', pid)
+      
+      # Wait a moment for graceful shutdown
+      sleep(2)
+      
+      # Check if process is still running
+      if process_running?(pid)
+        puts "Process did not respond to SIGTERM, sending SIGKILL..."
+        Process.kill('KILL', pid)
+        sleep(1)
+      end
+      
+      # Verify process has stopped
+      if process_running?(pid)
+        puts "Error: Failed to stop the server process (PID: #{pid})"
+        puts "You may need to stop it manually using: kill -9 #{pid}"
+        exit(1)
+      end
+      
+      # Clean up PID file
+      File.delete(pid_file)
+      puts "✓ Server stopped successfully"
+      puts "✓ PID file removed"
+      
+    rescue Errno::ESRCH
+      # Process not found - already stopped
+      puts "Process was already stopped."
+      File.delete(pid_file) if File.exist?(pid_file)
+      puts "✓ PID file removed"
+    rescue Errno::EPERM
+      puts "Error: Permission denied. Cannot stop process (PID: #{pid})"
+      puts "You may need to run this command with appropriate permissions."
+      exit(1)
+    rescue => e
+      puts "Error stopping server: #{e.message}"
+      exit(1)
+    end
   end
 
   def handle_status_command(args)
