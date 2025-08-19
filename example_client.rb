@@ -5,12 +5,32 @@
 
 require_relative 'lib/mcp_client'
 
+# Function to wait for the server to be ready
+def wait_for_server(client, timeout = 10)
+  start_time = Time.now
+  while Time.now - start_time < timeout
+    begin
+      client.status
+      return true
+    rescue MCPClientError
+      sleep 0.5
+    end
+  end
+  false
+end
+
 begin
   # Initialize the client with the server URL
   client = MCPClient.new('http://localhost:65432')
+
+  # Wait for the server to start
+  unless wait_for_server(client)
+    puts "Error: Could not connect to the server after 10 seconds."
+    exit 1
+  end
   
   puts "Expert Enigma MCP Client Example"
-  puts "================================"
+  puts "==============================="
   
   # Check server status
   puts "\n1. Server Status:"

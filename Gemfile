@@ -3,7 +3,6 @@
 source "https://rubygems.org"
 
 # gem "rails"
-gem "jimson"
 gem "webrick"
 gem "sqlite3"
 gem "rswag"
@@ -12,4 +11,5 @@ gem "parser"
 gem "rainbow"
 gem "onnxruntime"
 gem "tokenizers"
+gem "sinatra"
 

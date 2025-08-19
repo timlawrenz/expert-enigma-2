@@ -1,9 +1,9 @@
 require 'sqlite3'
 require 'json'
-require 'webrick'
+require 'sinatra'
 require_relative 'expert_enigma/ast_explorer'
 
-DB_FILE = File.expand_path('../../expert_enigma.db', __FILE__)
+DB_FILE = 'expert_enigma.db'
 
 # MCP Handler class containing all tool methods
 class MCPHandler
@@ -41,51 +41,8 @@ class MCPHandler
         return { status: 'error', message: "File not found: #{file_path}" }
       end
       
-      symbols = db.execute("SELECT name, type, scope, start_line, end_line FROM symbols WHERE file_id = ?", [file_id])
+      symbols = db.execute("SELECT name, type, scope, start_line, end_line FROM symbols WHERE file_id = ?", file_id)
       { symbols: symbols }
-    ensure
-      db.close
-    end
-  end
-
-  # Search for methods using vector similarity
-  def search(query, limit = 10)
-    raise ArgumentError, 'Missing required parameter: query' unless query
-
-    # --- Placeholder for Query Embedding ---
-    # In a real implementation, we would generate an embedding for the query text.
-    # For now, we'll generate a random vector of the correct dimension (64).
-    query_embedding = Array.new(64) { rand(-1.0..1.0) }
-    # --- End Placeholder ---
-
-    db = get_db
-    db.enable_load_extension(true)
-    
-    # Load the VSS extension
-    vector_lib_path = File.expand_path('../../vendor/sqlite-vss/vector0.so', __FILE__)
-    vss_lib_path = File.expand_path('../../vendor/sqlite-vss/vss0.so', __FILE__)
-    db.load_extension(vector_lib_path)
-    db.load_extension(vss_lib_path)
-
-    begin
-      # Find the k-nearest neighbors
-      sql = <<-SQL
-        SELECT
-          s.name,
-          s.start_line,
-          s.end_line,
-          f.file_path,
-          e.distance
-        FROM symbol_embeddings e
-        JOIN symbols s ON s.id = e.rowid
-        JOIN files f ON s.file_id = f.id
-        WHERE vss_search(e.embedding, ?)
-        ORDER BY e.distance
-        LIMIT ?
-      SQL
-
-      results = db.execute(sql, JSON.generate(query_embedding), limit)
-      { results: results }
     ensure
       db.close
     end
@@ -217,188 +174,62 @@ class MCPHandler
       db.close
     end
   end
-
-  # Get the call hierarchy for a method
-  def get_call_hierarchy(file_path, line)
-    raise ArgumentError, 'Missing required parameters: file_path and line' unless file_path && line
-
-    db = get_db
-    begin
-      # Find the method at the given location
-      method = db.get_first_row(
-        "SELECT * FROM symbols WHERE file_id = (SELECT id FROM files WHERE file_path = ?) AND start_line <= ? AND end_line >= ? AND type IN ('method', 'singleton_method') ORDER BY (end_line - start_line) ASC LIMIT 1",
-        [file_path, line, line]
-      )
-
-      unless method
-        raise StandardError, "No method found at #{file_path}:#{line}"
-      end
-
-      # Get inbound calls (callers)
-      inbound_sql = <<-SQL
-        SELECT s.name as symbol_name, s.start_line, s.end_line, f.file_path
-        FROM symbols s
-        JOIN files f ON s.file_id = f.id
-        WHERE s.name = ?
-      SQL
-      inbound_calls = db.execute(inbound_sql, [method['name']])
-
-      # Get outbound calls (callees)
-      outbound_calls = []
-      if method['ast_json']
-        method_ast = JSON.parse(method['ast_json'])
-        explorer = ExpertEnigma::ASTExplorer.new(method_ast)
-        send_nodes = explorer.find_outbound_calls(method_ast)
-        
-        send_nodes.each do |node|
-          # This is a simplified representation. A real implementation would
-          # try to resolve the definition of the called method.
-          outbound_calls << {
-            name: node['children'][1].to_s,
-            # Location would require parsing the AST node's loc info, which we don't store yet.
-          }
-        end
-      end
-
-      {
-        method: { name: method['name'], file_path: file_path, line: method['start_line'] },
-        inbound_calls: inbound_calls,
-        outbound_calls: outbound_calls.uniq # Uniq to remove duplicate calls
-      }
-
-    ensure
-      db.close
-    end
-  end
 end
 
-class McpServer
-  def initialize(port = 65432, host = '0.0.0.0')
-    @handler = MCPHandler.new
-    @port = port
-    @host = host
-    @server = WEBrick::HTTPServer.new(
-      :Port => @port,
-      :BindAddress => @host,
-      :Logger => WEBrick::Log.new(STDERR, WEBrick::Log::DEBUG),
-      :AccessLog => []
-    )
-    @server.mount_proc '/' do |req, res|
-      handle_request(req, res)
-    end
-  end
+# Sinatra App
+set :port, 65432
+set :bind, '0.0.0.0'
 
-  def start
-    trap('INT') { @server.shutdown }
-    @server.start
-  end
+handler = MCPHandler.new
 
-  def stop
-    @server.shutdown
-  end
+def create_success_response(id, result)
+  {
+    jsonrpc: '2.0',
+    result: result,
+    id: id
+  }.to_json
+end
 
-  def port
-    @server.config[:Port]
-  end
-  
-  private
+def create_error_response(id, code, message)
+  {
+    jsonrpc: '2.0',
+    error: {
+      code: code,
+      message: message
+    },
+    id: id
+  }.to_json
+end
 
-  def handle_request(req, res)
-    @server.logger.info("Received request: #{req.request_method} #{req.path}")
-    res['Content-Type'] = 'application/json'
-    
-    if req.request_method == 'POST'
-      begin
-        request_data = JSON.parse(req.body)
-        @server.logger.debug("Request body: #{request_data.inspect}")
-        response = process_jsonrpc_request(request_data)
-        @server.logger.debug("Response body: #{response.inspect}")
-        res.body = JSON.generate(response)
-      rescue JSON::ParserError
-        @server.logger.error("JSON Parse error")
-        res.body = JSON.generate(create_error_response(nil, -32700, 'Parse error'))
-      rescue => e
-        @server.logger.error("Internal error: #{e.message}")
-        res.body = JSON.generate(create_error_response(nil, -32603, "Internal error: #{e.message}"))
-      end
-    elsif req.request_method == 'GET' && req.path == '/'
-      # Simple status endpoint for compatibility
-      res.body = JSON.generate({ status: 'ok', message: 'Expert Enigma MCP Server is running.' })
-    else
-      res.status = 405
-      res.body = JSON.generate(create_error_response(nil, -32601, 'Method not found'))
-    end
-  end
+post '/' do
+  content_type :json
+  begin
+    request_data = JSON.parse(request.body.read)
+    id = request_data['id']
+    method_name = request_data['method']
+    params = request_data['params']
 
-  def process_jsonrpc_request(request)
-    # Validate JSON-RPC 2.0 format
-    unless request['jsonrpc'] == '2.0' && request['method']
-      return create_error_response(request['id'], -32600, 'Invalid Request')
-    end
-
-    method_name = request['method']
-    params = request['params'] || []
-    id = request['id']
-
-    # Check if method exists
-    unless @handler.respond_to?(method_name)
+    unless handler.respond_to?(method_name)
       return create_error_response(id, -32601, 'Method not found')
     end
 
-    begin
-      # Call the method with parameters
-      if params.is_a?(Array)
-        result = @handler.send(method_name, *params)
-      elsif params.is_a?(Hash)
-        result = @handler.send(method_name, **params)
-      else
-        result = @handler.send(method_name)
-      end
-
-      # Return success response
-      create_success_response(id, result)
-    rescue ArgumentError => e
-      create_error_response(id, -32602, "Invalid params: #{e.message}")
-    rescue => e
-      # Check if it's a Jimson error (for compatibility with our error handling)
-      if e.class.name.include?('Jimson')
-        error_code = case e.class.name
-        when /InvalidParams/
-          -32602
-        when /InternalError/
-          -32603
-        else
-          -32603
-        end
-        create_error_response(id, error_code, e.message)
-      else
-        create_error_response(id, -32603, "Internal error: #{e.message}")
-      end
+    if params.is_a?(Hash)
+      result = handler.send(method_name, **params)
+    else
+      result = handler.send(method_name, *params)
     end
-  end
 
-  def create_success_response(id, result)
-    {
-      jsonrpc: '2.0',
-      result: result,
-      id: id
-    }
-  end
-
-  def create_error_response(id, code, message)
-    {
-      jsonrpc: '2.0',
-      error: {
-        code: code,
-        message: message
-      },
-      id: id
-    }
+    create_success_response(id, result)
+  rescue JSON::ParserError
+    create_error_response(nil, -32700, 'Parse error')
+  rescue ArgumentError => e
+    create_error_response(id, -32602, "Invalid params: #{e.message}")
+  rescue => e
+    create_error_response(id, -32603, "Internal error: #{e.message}")
   end
 end
 
-if __FILE__ == $0
-  server = McpServer.new
-  puts "Expert Enigma MCP Server starting on port #{server.port}"
-  server.start
+get '/' do
+  content_type :json
+  handler.status.to_json
 end

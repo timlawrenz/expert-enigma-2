@@ -20,8 +20,8 @@ def setup_database
   db = SQLite3::Database.new(DB_FILE)
   db.enable_load_extension(true)
 
-  vector_lib_path = File.expand_path('../.venv/lib/python3.12/site-packages/sqlite_vss/vector0.so', __dir__)
-  vss_lib_path = File.expand_path('../.venv/lib/python3.12/site-packages/sqlite_vss/vss0.so', __dir__)
+  vector_lib_path = File.expand_path('../vendor/sqlite-vss/vector0.so', __dir__)
+  vss_lib_path = File.expand_path('../vendor/sqlite-vss/vss0.so', __dir__)
   
   db.load_extension(vector_lib_path)
   db.load_extension(vss_lib_path)
