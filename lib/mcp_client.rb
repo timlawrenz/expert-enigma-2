@@ -1,23 +1,38 @@
-require 'jimson'
+require 'net/http'
+require 'json'
 
 class MCPClientError < StandardError; end
 
 class MCPClient
   def initialize(server_url)
-    @client = Jimson::Client.new(server_url)
+    @uri = URI(server_url)
   end
 
   def method_missing(name, *args)
     begin
-      if args.empty?
-        @client.send(name.to_s)
+      http = Net::HTTP.new(@uri.host, @uri.port)
+      request = Net::HTTP::Post.new(@uri.request_uri, 'Content-Type' => 'application/json')
+
+      params = args.first
+      
+      request.body = {
+        jsonrpc: '2.0',
+        method: name,
+        params: params,
+        id: 1
+      }.to_json
+
+      response = http.request(request)
+      
+      body = JSON.parse(response.body)
+
+      if body['error']
+        raise MCPClientError, "JSON-RPC Error: #{body['error']['message']}"
       else
-        # Handle both array and hash style arguments
-        params = args.first.is_a?(Hash) ? args.first : args
-        @client.send(name.to_s, params)
+        body['result']
       end
     rescue => e
-      raise MCPClientError, "JSON-RPC Error: #{e.message}"
+      raise MCPClientError, "HTTP Error: #{e.message}"
     end
   end
 
