@@ -273,8 +273,42 @@ class ExpertEnigmaCLI
   end
 
   def handle_status_command(args)
-    puts "Status command called with arguments: #{args.join(' ')}"
-    puts "Note: Command parsing successful - implementation pending"
+    # Determine target path - use current directory if no path provided
+    target_path = if args.empty?
+                    Dir.pwd
+                  else
+                    File.expand_path(args[0])
+                  end
+
+    # Set up paths
+    expert_enigma_dir = File.join(target_path, '.expert_enigma')
+    pid_file = File.join(expert_enigma_dir, 'server.pid')
+
+    # Check if .expert_enigma directory exists
+    unless File.directory?(expert_enigma_dir)
+      puts "Expert Enigma server is not running."
+      puts "No .expert_enigma directory found in #{target_path}"
+      puts "Run 'expert-enigma index #{target_path}' to create the database first."
+      return
+    end
+
+    # Check if PID file exists
+    unless File.exist?(pid_file)
+      puts "Expert Enigma server is not running."
+      return
+    end
+
+    # Read PID and check if process is running
+    pid = File.read(pid_file).strip.to_i
+    if process_running?(pid)
+      project_name = File.basename(target_path)
+      puts "Expert Enigma server is running for project '#{project_name}' (PID: #{pid})"
+    else
+      puts "Expert Enigma server is not running."
+      # Clean up stale PID file
+      File.delete(pid_file)
+      puts "Removed stale PID file."
+    end
   end
 
   def handle_serve_command(args)
