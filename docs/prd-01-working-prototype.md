@@ -127,29 +127,17 @@ These tests validate the server's ability to understand relationships between di
         ```
 
 *   **`get_call_hierarchy`**
-    *   **Status:** ❌ Failed (2025-08-15)
+    *   **Status:** 🟡 Deferred
     *   **Purpose:** Get the inbound and outbound calls for a specific method.
-    *   **Command:** 
-        ```bash
-        curl -X POST -H "Content-Type: application/json" -d '{"jsonrpc":"2.0","method":"get_call_hierarchy","params":{"file_path":"packs/entries/app/controllers/entries_controller.rb","line":28},"id":1}' http://localhost:65432/
-        ```
-    *   **Bug:** The endpoint failed to identify outbound calls to `entry_params` (in the same file) and `Entries::Create.call` (in a different file). This indicates a bug in the implementation.
+    *   **Note:** This endpoint was found to have bugs and has been temporarily disabled.
 
 *   **`search`**
-    *   **Status:** ❌ Failed (2025-08-15)
-    *   **Purpose:** Test the (currently placeholder) vector search functionality.
-    *   **Command:** 
-        ```bash
-        curl -X POST -H "Content-Type: application/json" -d '{"jsonrpc":"2.0","method":"search","params":{"query":"test","limit":5},"id":1}' http://localhost:65432/
-        ```
-    *   **Bug:** The endpoint crashed the server with a `Broken pipe` error. This is a critical issue that needs to be addressed.
+    *   **Status:** 🟡 Deferred
+    *   **Purpose:** Test the vector search functionality.
+    *   **Note:** This endpoint was found to crash the server and has been temporarily disabled.
 
-## 4. Phase 4: Gemini CLI Integration
+## 4. Phase 4: Next Steps
 
-Once the server is confirmed to be working correctly, the final step is to configure `gemini-cli` to use it.
+The `jimson` refactoring described in `prd-02-server.md` was abandoned due to incompatibilities with the environment. The server will continue to use the Sinatra implementation.
 
-1.  **Configure `gemini-cli`:**
-    *   Update the `gemini-cli` configuration to point to the running `expert-enigma` server as its MCP provider for the `/home/ubuntu/projects/pigeonholes/` project.
-
-2.  **Test with `gemini-cli`:**
-    *   Use `gemini-cli` to ask questions about the `pigeonholes` project, which will test the integration between the CLI and the server.
+The next step is to fix the bugs in the `get_call_hierarchy` and `search` endpoints. Once those are stable, we can proceed with Gemini CLI integration.

@@ -35,7 +35,7 @@ The data pipeline is designed for a rich, offline-first experience:
 
 ## Progress & Implemented Features
 
-The project has a functional core that successfully covers all planned features from the "Core AST Inspection" and "Semantic & Cross-File Analysis" categories.
+The project has a functional core that successfully covers all planned features from the "Core AST Inspection" and "Semantic & Cross-File Analysis" categories. However, some features were found to be unstable and have been temporarily disabled.
 
 ### Completed
 
@@ -46,10 +46,12 @@ The project has a functional core that successfully covers all planned features 
 *   **Phase 2: Indexer & API**
     *   [x] Build the main indexer process for full repository scans.
     *   [x] Implemented all core MCP API endpoints for inspection and analysis.
+    *   [x] Successfully tested the prototype locally.
 
 ### Next Steps
 
 *   [ ] **Phase 3: Stabilize & Refine Core Features**
+    *   [ ] **Fix Bugs:** The `get_call_hierarchy` and `search` endpoints were found to be unstable and have been disabled. The next step is to fix the underlying bugs and re-enable them.
     *   [ ] **Functional Search:** Replace the placeholder random vector in the `/search` endpoint with a real query embedding mechanism.
     *   [ ] **Robust VSS Loading:** Make the loading of the `sqlite-vss` extension portable by removing hardcoded paths.
     *   [ ] **Server Refactoring:** Refactor `mcp_server.rb` to reduce code duplication for database connections and AST loading.
@@ -62,21 +64,21 @@ The project has a functional core that successfully covers all planned features 
 
 ## API Documentation
 
-The server runs on `http://localhost:65432`. All endpoints return JSON.
+The server runs on `http://localhost:65432`. All endpoints are POST requests with a JSON-RPC 2.0 body.
 
-| Endpoint | Description | Parameters | Example `curl` Command |
-| :--- | :--- | :--- | :--- |
-| **`GET /`** | Health check | None | `curl http://localhost:65432/` |
-| **`GET /list_files`** | Lists all indexed files in the repository. | None | `curl http://localhost:65432/list_files` |
-| **`GET /get_ast`** | Retrieves the full AST for a single file. | `file_path` (string) | `curl "http://localhost:65432/get_ast?file_path=test/test_file_1.rb"` |
-| **`GET /get_symbols`** | Returns all symbols for a given file. | `file_path` (string) | `curl "http://localhost:65432/get_symbols?file_path=test/test_file_1.rb"` |
-| **`GET /query_nodes`** | Finds nodes of a specific type in a file's AST. | `file_path`, `type` | `curl "http://localhost:65432/query_nodes?file_path=test/test_file_1.rb&type=def"` |
-| **`GET /get_node_details`** | Retrieves details for a specific node by its ID. | `file_path`, `node_id` | `curl "http://localhost:65432/get_node_details?file_path=test/test_file_1.rb&node_id=root.children.0"`|
-| **`GET /get_ancestors`** | Returns the ancestor nodes for a given node ID. | `file_path`, `node_id` | `curl "http://localhost:65432/get_ancestors?file_path=test/test_file_1.rb&node_id=root.children.0.children.2.children.0"` |
-| **`GET /find_definition`** | Finds the definition of a symbol by name. | `name` (string) | `curl "http://localhost:65432/find_definition?name=MyClass"` |
-| **`GET /find_references`** | Finds all references to a symbol by name. | `name` (string) | `curl "http://localhost:65432/find_references?name=my_method"` |
-| **`GET /get_call_hierarchy`**| Gets inbound/outbound calls for a method. | `file_path`, `line` | `curl "http://localhost:65432/get_call_hierarchy?file_path=test/test_file_1.rb&line=3"` |
-| **`GET /search`** | *Placeholder:* Vector search for methods. | `query`, `limit` | `curl "http://localhost:65432/search?query=database&limit=5"` |
+| Method | Description | Parameters |
+| :--- | :--- | :--- |
+| **`status`** | Health check | None |
+| **`list_files`** | Lists all indexed files in the repository. | None |
+| **`get_ast`** | Retrieves the full AST for a single file. | `file_path` (string) |
+| **`get_symbols`** | Returns all symbols for a given file. | `file_path` (string) |
+| **`query_nodes`** | Finds nodes of a specific type in a file's AST. | `file_path`, `type` |
+| **`get_node_details`** | Retrieves details for a specific node by its ID. | `file_path`, `node_id` |
+| **`get_ancestors`** | Returns the ancestor nodes for a given node ID. | `file_path`, `node_id` |
+| **`find_definition`** | Finds the definition of a symbol by name. | `name` (string) |
+| **`find_references`** | Finds all references to a symbol by name. | `name` (string) |
+| **`get_call_hierarchy`**| **[DISABLED]** Gets inbound/outbound calls for a method. | `file_path`, `line` |
+| **`search`** | **[DISABLED]** Vector search for methods. | `query`, `limit` |
 
 
 ## Testing Approach
