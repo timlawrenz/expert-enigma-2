@@ -100,30 +100,174 @@ To provide a seamless, native-like CLI experience, users should install a wrappe
     # Wrapper script for running the expert-enigma MCP server via Docker.
     # This script mounts the current working directory into the container
     # and passes all command-line arguments to the server's CLI.
+    #
+    # Usage: expert-enigma [index|start|serve|stop|status] [options]
+    #
+    # Commands:
+    #   index             Scans the current directory and builds the database
+    #   start [--port N]  Starts the MCP server (detached mode, default port 65432)
+    #   serve [--port N]  Convenience command that runs index if needed, then start
+    #   stop              Stops the currently running server process
+    #   status            Reports whether the server is running
+    #
+    # Options:
+    #   --port <port>     Specify the port number (default: 65432)
+    #
 
     set -e
 
     IMAGE_NAME="expert-enigma/server:latest"
     PROJECT_PATH="$(pwd)"
+    DEFAULT_PORT=65432
 
-    # The main command to be executed inside the container is the first argument.
+    # Function to parse port from arguments
+    parse_port() {
+        local port=$DEFAULT_PORT
+        local args=("$@")
+        local i=0
+        
+        while [ $i -lt ${#args[@]} ]; do
+            if [ "${args[$i]}" = "--port" ]; then
+                if [ $((i + 1)) -lt ${#args[@]} ]; then
+                    port="${args[$((i + 1))]}"
+                    # Validate port is a number
+                    if ! [[ "$port" =~ ^[0-9]+$ ]]; then
+                        echo "Error: Port must be a number" >&2
+                        exit 1
+                    fi
+                    # Validate port range
+                    if [ "$port" -lt 1 ] || [ "$port" -gt 65535 ]; then
+                        echo "Error: Port must be between 1 and 65535" >&2
+                        exit 1
+                    fi
+                else
+                    echo "Error: --port option requires a value" >&2
+                    exit 1
+                fi
+                break
+            fi
+            i=$((i + 1))
+        done
+        
+        echo "$port"
+    }
+
+    # Function to show usage
+    show_usage() {
+        echo "Usage: expert-enigma [index|start|serve|stop|status] [options]"
+        echo
+        echo "Commands:"
+        echo "  index             Scans the current directory and builds the database"
+        echo "  start [--port N]  Starts the MCP server (detached mode, default port 65432)"
+        echo "  serve [--port N]  Convenience command that runs index if needed, then start"
+        echo "  stop              Stops the currently running server process"
+        echo "  status            Reports whether the server is running"
+        echo
+        echo "Options:"
+        echo "  --port <port>     Specify the port number (default: 65432)"
+        echo
+    }
+
+    # Check if Docker is available
+    if ! command -v docker &> /dev/null; then
+        echo "Error: Docker is not installed or not in PATH" >&2
+        echo "Please install Docker from https://docs.docker.com/engine/install/" >&2
+        exit 1
+    fi
+
+    # Check if any arguments provided
+    if [ $# -eq 0 ]; then
+        show_usage
+        exit 1
+    fi
+
+    # The main command to be executed inside the container is the first argument
     COMMAND="$1"
-    shift # Removes the first argument, so $@ contains the rest.
+    shift # Removes the first argument, so $@ contains the rest
 
     case "$COMMAND" in
-      start)
-        # For the 'start' command, we handle port mapping and run in detached mode.
-        # Default port is 65432, but can be overridden with --port.
-        docker run -d -p 65432:65432 -v "${PROJECT_PATH}:/app" --name "mcp-server-$(basename ${PROJECT_PATH})" "$IMAGE_NAME" start /app "$@"
-        ;;
-      index|serve|stop|status)
-        # For other commands, run the container and remove it when done.
-        docker run --rm -v "${PROJECT_PATH}:/app" "$IMAGE_NAME" "$COMMAND" /app "$@"
-        ;;
-      *)
-        echo "Usage: expert-enigma [index|start|serve|stop|status] [options]"
-        exit 1
-        ;;
+        start)
+            # For the 'start' command, we handle port mapping and run in detached mode
+            PORT=$(parse_port "$@")
+            CONTAINER_NAME="mcp-server-$(basename "${PROJECT_PATH}")"
+            
+            echo "Starting expert-enigma server in detached mode..."
+            echo "Project: ${PROJECT_PATH}"
+            echo "Port: ${PORT}"
+            echo "Container: ${CONTAINER_NAME}"
+            
+            # Check if container with same name already exists
+            if docker ps -a --format '{{.Names}}' | grep -q "^${CONTAINER_NAME}$"; then
+                echo "Container '${CONTAINER_NAME}' already exists. Removing it first..."
+                docker rm -f "${CONTAINER_NAME}" > /dev/null 2>&1 || true
+            fi
+            
+            docker run -d -p "${PORT}:65432" -v "${PROJECT_PATH}:/app" --name "${CONTAINER_NAME}" "$IMAGE_NAME" start /app "$@"
+            echo "✓ Server started successfully"
+            echo "✓ Server is listening on port ${PORT}"
+            echo "✓ Container name: ${CONTAINER_NAME}"
+            ;;
+        serve)
+            # For the 'serve' command, we handle port mapping and run in detached mode
+            PORT=$(parse_port "$@")
+            CONTAINER_NAME="mcp-server-$(basename "${PROJECT_PATH}")"
+            
+            echo "Running expert-enigma serve (index + start)..."
+            echo "Project: ${PROJECT_PATH}"
+            echo "Port: ${PORT}"
+            echo "Container: ${CONTAINER_NAME}"
+            
+            # Check if container with same name already exists
+            if docker ps -a --format '{{.Names}}' | grep -q "^${CONTAINER_NAME}$"; then
+                echo "Container '${CONTAINER_NAME}' already exists. Removing it first..."
+                docker rm -f "${CONTAINER_NAME}" > /dev/null 2>&1 || true
+            fi
+            
+            docker run -d -p "${PORT}:65432" -v "${PROJECT_PATH}:/app" --name "${CONTAINER_NAME}" "$IMAGE_NAME" serve /app "$@"
+            echo "✓ Server started successfully"
+            echo "✓ Server is listening on port ${PORT}"
+            echo "✓ Container name: ${CONTAINER_NAME}"
+            ;;
+        index)
+            # For the 'index' command, run the container and remove it when done
+            echo "Indexing project: ${PROJECT_PATH}"
+            docker run --rm -v "${PROJECT_PATH}:/app" "$IMAGE_NAME" index /app "$@"
+            ;;
+        stop)
+            # For the 'stop' command, run the container and remove it when done
+            echo "Stopping expert-enigma server..."
+            docker run --rm -v "${PROJECT_PATH}:/app" "$IMAGE_NAME" stop /app "$@"
+            
+            # Also stop and remove any detached containers for this project
+            CONTAINER_NAME="mcp-server-$(basename "${PROJECT_PATH}")"
+            if docker ps --format '{{.Names}}' | grep -q "^${CONTAINER_NAME}$"; then
+                echo "Stopping detached container: ${CONTAINER_NAME}"
+                docker stop "${CONTAINER_NAME}" > /dev/null
+                docker rm "${CONTAINER_NAME}" > /dev/null
+                echo "✓ Detached container stopped and removed"
+            fi
+            ;;
+        status)
+            # For the 'status' command, run the container and remove it when done
+            echo "Checking expert-enigma server status..."
+            docker run --rm -v "${PROJECT_PATH}:/app" "$IMAGE_NAME" status /app "$@"
+            
+            # Also check if detached container is running
+            CONTAINER_NAME="mcp-server-$(basename "${PROJECT_PATH}")"
+            if docker ps --format '{{.Names}}' | grep -q "^${CONTAINER_NAME}$"; then
+                echo "✓ Detached container '${CONTAINER_NAME}' is running"
+            fi
+            ;;
+        --help|-h|help)
+            show_usage
+            exit 0
+            ;;
+        *)
+            echo "Error: Unknown command '${COMMAND}'" >&2
+            echo >&2
+            show_usage
+            exit 1
+            ;;
     esac
     ```
 
