@@ -111,8 +111,160 @@ class ExpertEnigmaCLI
   end
 
   def handle_start_command(args)
-    puts "Start command called with arguments: #{args.join(' ')}"
-    puts "Note: Command parsing successful - implementation pending"
+    # Parse arguments
+    if args.empty?
+      puts "Error: No path provided for start command"
+      puts "Usage: expert-enigma start <path> [--port <port>]"
+      exit(1)
+    end
+
+    # Extract path and parse options
+    target_path = File.expand_path(args[0])
+    port = 65432
+    
+    # Parse port option
+    i = 1
+    while i < args.length
+      case args[i]
+      when '--port'
+        if i + 1 >= args.length
+          puts "Error: --port option requires a value"
+          exit(1)
+        end
+        port_str = args[i + 1]
+        unless port_str =~ /^\d+$/
+          puts "Error: Port must be a number"
+          exit(1)
+        end
+        port = port_str.to_i
+        if port < 1 || port > 65535
+          puts "Error: Port must be between 1 and 65535"
+          exit(1)
+        end
+        i += 2
+      else
+        puts "Error: Unknown option #{args[i]}"
+        puts "Usage: expert-enigma start <path> [--port <port>]"
+        exit(1)
+      end
+    end
+
+    # Validate target path
+    unless File.exist?(target_path)
+      puts "Error: Path does not exist: #{target_path}"
+      exit(1)
+    end
+
+    unless File.directory?(target_path)
+      puts "Error: Path is not a directory: #{target_path}"
+      exit(1)
+    end
+
+    # Set up paths
+    expert_enigma_dir = File.join(target_path, '.expert_enigma')
+    db_file = File.join(expert_enigma_dir, 'expert_enigma.db')
+    pid_file = File.join(expert_enigma_dir, 'server.pid')
+
+    # Validate database exists
+    unless File.exist?(db_file)
+      puts "Error: Database file does not exist: #{db_file}"
+      puts "Please run 'expert-enigma index #{target_path}' first to create the database."
+      exit(1)
+    end
+
+    # Check if server is already running
+    if File.exist?(pid_file)
+      pid = File.read(pid_file).strip.to_i
+      if process_running?(pid)
+        puts "Error: Server is already running (PID: #{pid})"
+        puts "Use 'expert-enigma stop' to stop the running server first."
+        exit(1)
+      else
+        # Remove stale PID file
+        File.delete(pid_file)
+      end
+    end
+
+    # Start server as daemon
+    puts "Starting MCP server for project: #{target_path}"
+    puts "Port: #{port}"
+    puts "Database: #{db_file}"
+    
+    # Start the server in the background
+    pid = start_server_daemon(db_file, port, pid_file)
+    
+    # Wait a moment to check if the process started successfully
+    sleep(1)
+    unless process_running?(pid)
+      puts "Error: Failed to start server"
+      File.delete(pid_file) if File.exist?(pid_file)
+      exit(1)
+    end
+    
+    puts "✓ Server started successfully (PID: #{pid})"
+    puts "✓ Server is listening on port #{port}"
+    puts "✓ PID file created at: #{pid_file}"
+  end
+
+  private
+
+  def process_running?(pid)
+    return false if pid <= 0
+    begin
+      Process.getpgid(pid)
+      true
+    rescue Errno::ESRCH
+      false
+    end
+  end
+
+  def start_server_daemon(db_file, port, pid_file)
+    # Get the absolute path to the server launcher script  
+    launcher_path = File.expand_path('../../lib/server_launcher.rb', __FILE__)
+    
+    # Verify launcher exists
+    unless File.exist?(launcher_path)
+      raise "Server launcher not found at: #{launcher_path}"
+    end
+    
+    # Fork a child process
+    pid = fork do
+      begin
+        # Detach from the terminal
+        Process.setsid
+        
+        # Write PID file first
+        File.write(pid_file, Process.pid)
+        
+        # Change to the project directory to ensure proper working directory
+        Dir.chdir(File.dirname(File.dirname(__FILE__)))
+        
+        # Redirect standard streams after writing PID
+        $stdin.reopen('/dev/null')
+        $stdout.reopen('/dev/null', 'w')
+        $stderr.reopen('/dev/null', 'w')
+        
+        # Set the PATH to include user gems
+        ENV['PATH'] = "#{ENV['HOME']}/.local/share/gem/ruby/3.2.0/bin:#{ENV['PATH']}"
+        
+        # Execute the server launcher with the database and port
+        exec("ruby", launcher_path, db_file, port.to_s)
+      rescue => e
+        # Try to write error to log file
+        begin
+          log_file = File.join(File.dirname(pid_file), 'server.log')
+          File.write(log_file, "Server error: #{e.message}\n#{e.backtrace.join("\n")}\n")
+        rescue
+          # If we can't write log, just exit
+        end
+        exit(1)
+      end
+    end
+    
+    # Detach from child process
+    Process.detach(pid)
+    
+    pid
   end
 
   def handle_stop_command(args)

@@ -3,13 +3,15 @@ require 'json'
 require 'sinatra/base'
 require_relative 'expert_enigma/ast_explorer'
 
-DB_FILE = 'expert_enigma.db'
-
 # MCP Handler class containing all tool methods
 class MCPHandler
+  def initialize(db_file)
+    @db_file = db_file
+  end
+
   # --- Database Connection ---
   def get_db
-    db = SQLite3::Database.new(DB_FILE, readonly: true)
+    db = SQLite3::Database.new(@db_file, readonly: true)
     db.results_as_hash = true
     db
   end
@@ -177,10 +179,29 @@ class MCPHandler
 end
 
 class McpServer < Sinatra::Base
-  set :port, 65432
-  set :bind, '0.0.0.0'
+  def self.create_and_start(database_file, server_port = 65432, bind_address = '0.0.0.0')
+    # Validate database file exists
+    unless File.exist?(database_file)
+      raise ArgumentError, "Database file does not exist: #{database_file}"
+    end
+    
+    # Create a new instance to avoid conflicts with class variables
+    app = self.new
+    app.class.set :port, server_port
+    app.class.set :bind, bind_address
+    app.class.set :handler, MCPHandler.new(database_file)
+    
+    # Start the server
+    app.class.run!
+  end
 
-  handler = MCPHandler.new
+  def self.stop
+    quit!
+  end
+
+  def handler
+    settings.handler
+  end
 
   def create_success_response(id, result)
     {
